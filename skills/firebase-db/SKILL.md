@@ -1,279 +1,577 @@
 ---
 name: firebase-db
-description: >
-  Firebase Firestore database integration for this workspace. Use this skill whenever a project
-  needs persistent database storage, real-time data, user management, or any server-side data
-  operations — including when building web apps, APIs, dashboards, or any feature that requires
-  reading/writing structured data. Also use when migrating from file-based storage (JSON, SQLite,
-  localStorage) to Firebase. Automatically initializes Firebase Admin SDK with the project
-  credentials and provides ready-to-use CRUD patterns, query builders, and migration utilities.
-  Trigger on: "database", "Firebase", "Firestore", "data storage", "save data", "read data",
-  "query data", "migrate database", "real-time database", "collections", "documents",
-  "persistent storage", "cloud database", or any request involving structured data persistence.
+description: "Firebase Admin SDK database integration for Next.js projects. Replaces Prisma/SQLite with Firebase Firestore and Realtime Database. Use this skill whenever the user mentions Firebase, Firestore, Realtime Database, firebase-admin, or wants to replace the default database system with Firebase. Also trigger when the user asks about cloud database, NoSQL database, real-time data sync, or any task involving Firebase authentication, Firestore CRUD operations, or migrating from Prisma/SQLite to Firebase."
+argument-hint: "Describe what you want to do with Firebase (e.g., setup, CRUD, migrate from Prisma)"
 ---
 
-# Firebase DB Skill
+# Firebase Database Skill
 
-Integrate Google Firebase Firestore as the primary database for any project in this workspace. This skill handles initialization, CRUD operations, queries, migrations, and real-time listeners using the Firebase Admin SDK.
+## Overview
 
-## Why Firebase?
+This skill replaces the default Prisma ORM + SQLite database system in the workspace with **Firebase Admin SDK**, enabling you to use **Cloud Firestore** and **Firebase Realtime Database** as the primary data layer for Next.js applications.
 
-This workspace runs in an ephemeral Kubernetes pod — local files (SQLite, JSON) are lost on restart. Firebase Firestore provides persistent, cloud-hosted, NoSQL document storage that survives pod restarts and scales automatically. The Admin SDK is already installed and credentials are pre-configured.
+The workspace currently uses:
+- **Prisma ORM** with SQLite (`DATABASE_URL=file:/home/z/my-project/db/custom.db`)
+- **Prisma Client** via `import { db } from '@/lib/db'`
 
-## Architecture Overview
+After applying this skill, the database layer will use:
+- **Firebase Admin SDK** (`firebase-admin`) for server-side operations
+- **Cloud Firestore** as the primary NoSQL document database
+- **Firebase Realtime Database** for real-time sync scenarios (optional)
+- A new `@/lib/firebase` module replacing `@/lib/db`
 
-```
-Your App  →  Firebase Admin SDK (server-side)  →  Firestore (cloud)
-                ↕
-         Credential File (pre-configured)
-```
+---
 
-- **Firestore** stores data as *documents* inside *collections* (like folders and files)
-- **Admin SDK** provides full read/write access bypassing security rules (server-side trust)
-- **Credential** is stored at `/home/z/my-project/upload/gen-lang-client-0173847591-firebase-adminsdk-fbsvc-0c9f6c5c70.json`
+## Setup Instructions
 
-## Project Configuration
+### Step 1: Install Dependencies
 
-| Setting | Value |
-|---------|-------|
-| **Project ID** | `gen-lang-client-0173847591` |
-| **Credential Path** | `/home/z/my-project/upload/gen-lang-client-0173847591-firebase-adminsdk-fbsvc-0c9f6c5c70.json` |
-| **SDK Version** | `firebase-admin@13.10.0` |
-| **Database Type** | Firestore (Native mode) |
-| **Database URL** | `https://gen-lang-client-0173847591.firebaseio.com` |
-
-## Quick Start
-
-### 1. Initialize Firebase in Your Project
-
-Always use this initialization pattern in any backend code that needs Firebase:
-
-```javascript
-const admin = require('firebase-admin');
-const path = require('path');
-
-// Prevent double initialization
-if (admin.apps.length === 0) {
-  const serviceAccount = require('/home/z/my-project/upload/gen-lang-client-0173847591-firebase-adminsdk-fbsvc-0c9f6c5c70.json');
-  
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: 'https://gen-lang-client-0173847591.firebaseio.com'
-  });
-}
-
-const db = admin.firestore();
-```
-
-### 2. CRUD Operations
-
-Read `references/firestore-crud.md` for the full CRUD reference with examples. Here's the essential pattern:
-
-```javascript
-// CREATE - Add a document to a collection
-const docRef = await db.collection('users').add({
-  name: 'Ahmad',
-  email: 'ahmad@example.com',
-  role: 'admin',
-  createdAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
-// READ - Get a document by ID
-const doc = await db.collection('users').doc(docRef.id).get();
-if (doc.exists) {
-  console.log(doc.id, '=>', doc.data());
-}
-
-// UPDATE - Update specific fields
-await db.collection('users').doc(docRef.id).update({
-  role: 'editor',
-  updatedAt: admin.firestore.FieldValue.serverTimestamp()
-});
-
-// DELETE - Remove a document
-await db.collection('users').doc(docRef.id).delete();
-```
-
-### 3. Querying Data
-
-Read `references/firestore-queries.md` for advanced query patterns.
-
-```javascript
-// Simple where query
-const snapshot = await db.collection('users')
-  .where('role', '==', 'admin')
-  .get();
-
-snapshot.forEach(doc => {
-  console.log(doc.id, '=>', doc.data());
-});
-
-// Ordered and limited
-const recent = await db.collection('orders')
-  .where('status', '==', 'active')
-  .orderBy('createdAt', 'desc')
-  .limit(10)
-  .get();
-```
-
-## Data Modeling Patterns
-
-Firestore is NoSQL — design your collections around access patterns, not relationships.
-
-### Pattern 1: Root Collections (most common)
-```
-users/{userId}        → { name, email, role, createdAt }
-orders/{orderId}      → { customerId, total, status, items, createdAt }
-attendance/{id}       → { nama, tanggal, status, waktu, keterangan }
-```
-
-### Pattern 2: Sub-collections (for one-to-many)
-```
-users/{userId}/orders/{orderId}  → orders belonging to a specific user
-projects/{projectId}/tasks/{taskId}  → tasks within a project
-```
-
-### Pattern 3: Composite Keys (alternative to sub-collections)
-```
-attendance/{nama_tanggal}  → key like "ahmad-fauzi_2026-05-28"
-```
-
-### Important Rules
-- Avoid deeply nested sub-collections (max 100 levels, but keep under 3)
-- Denormalize data for read performance — Firestore charges per document read
-- Use `serverTimestamp()` for all time fields to ensure consistency
-- Store IDs as document names for O(1) lookups
-- Maximum document size: 1 MB
-
-## Migration from File-Based Storage
-
-When a project currently uses JSON files or SQLite and needs to migrate to Firebase, use the bundled migration script:
+Run the following command in the project root:
 
 ```bash
-# Migrate a JSON file to a Firestore collection
-node scripts/migrate-json.js --file /path/to/data.json --collection attendance
-
-# Migrate with custom ID field
-node scripts/migrate-json.js --file /path/to/users.json --collection users --id-field email
-
-# Migrate with transform function
-node scripts/migrate-json.js --file /path/to/data.json --collection orders --transform scripts/transforms/orders.js
+cd /home/z/my-project && bun add firebase-admin
 ```
 
-Read `references/migration-guide.md` for step-by-step migration instructions.
+### Step 2: Configure Firebase Credentials
 
-## Integration with Express.js Backend
+The Firebase service account key is already available at:
 
-When building a backend API that uses Firebase, follow this pattern:
-
-```javascript
-const express = require('express');
-const admin = require('firebase-admin');
-
-// Initialize (see Quick Start)
-const db = admin.firestore();
-const app = express();
-app.use(express.json());
-
-// GET all items from a collection
-app.get('/api/items', async (req, res) => {
-  try {
-    const snapshot = await db.collection('items').orderBy('createdAt', 'desc').get();
-    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json({ success: true, data: items });
-  } catch (error) {
-    res.status(500).json({ success: false, error: { message: error.message } });
-  }
-});
-
-// POST create a new item
-app.post('/api/items', async (req, res) => {
-  try {
-    const docRef = await db.collection('items').add({
-      ...req.body,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    const doc = await docRef.get();
-    res.status(201).json({ success: true, data: { id: doc.id, ...doc.data() } });
-  } catch (error) {
-    res.status(500).json({ success: false, error: { message: error.message } });
-  }
-});
+```
+/home/z/my-project/upload/smakda-73d57-firebase-adminsdk-fbsvc-845336727d.json
 ```
 
-## Integration with Next.js Fullstack
+Add the following environment variables to `.env`:
 
-For Next.js projects using the fullstack-dev skill, create API routes that use Firebase Admin:
+```env
+FIREBASE_SERVICE_ACCOUNT_PATH=/home/z/my-project/upload/smakda-73d57-firebase-adminsdk-fbsvc-845336727d.json
+FIREBASE_PROJECT_ID=smakda-73d57
+FIREBASE_DATABASE_URL=https://smakda-73d57-default-rtdb.firebaseio.com
+```
 
-```javascript
-// app/api/items/route.js
-import { getFirebaseDb } from '@/lib/firebase-admin';
-import { NextResponse } from 'next/server';
+### Step 3: Create Firebase Admin Module
 
-export async function GET() {
-  const db = getFirebaseDb();
-  const snapshot = await db.collection('items').get();
-  const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  return NextResponse.json({ success: true, data: items });
+Create `src/lib/firebase.ts` in the Next.js project:
+
+```typescript
+import * as admin from 'firebase-admin';
+
+// Singleton pattern to prevent multiple initializations
+let firebaseApp: admin.app.App;
+
+function getFirebaseApp(): admin.app.App {
+  if (firebaseApp) {
+    return firebaseApp;
+  }
+
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+
+  if (!serviceAccountPath) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_PATH environment variable is not set');
+  }
+
+  const serviceAccount = require(serviceAccountPath);
+
+  firebaseApp = admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
+  });
+
+  return firebaseApp;
+}
+
+// Firestore instance
+export function getFirestore(): admin.firestore.Firestore {
+  return getFirebaseApp().firestore();
+}
+
+// Realtime Database instance
+export function getRealtimeDb(): admin.database.Database {
+  return getFirebaseApp().database();
+}
+
+// Auth instance
+export function getAuth(): admin.auth.Auth {
+  return getFirebaseApp().auth();
+}
+
+// Default export for convenience
+export default getFirebaseApp;
+```
+
+### Step 4: Create Database Utility Module
+
+Create `src/lib/firebase-helpers.ts` for common CRUD operations:
+
+```typescript
+import {
+  getFirestore,
+  getRealtimeDb,
+} from '@/lib/firebase';
+import {
+  DocumentData,
+  Query,
+  WhereFilterOp,
+  OrderByDirection,
+} from 'firebase-admin/firestore';
+
+// ==========================================
+// Firestore CRUD Operations
+// ==========================================
+
+/**
+ * Create or overwrite a document in a collection
+ */
+export async function createDocument(
+  collection: string,
+  data: DocumentData,
+  docId?: string
+): Promise<string> {
+  const db = getFirestore();
+  if (docId) {
+    await db.collection(collection).doc(docId).set(data);
+    return docId;
+  }
+  const ref = await db.collection(collection).add(data);
+  return ref.id;
+}
+
+/**
+ * Read a single document by ID
+ */
+export async function getDocument<T = DocumentData>(
+  collection: string,
+  docId: string
+): Promise<(T & { id: string }) | null> {
+  const db = getFirestore();
+  const doc = await db.collection(collection).doc(docId).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() } as T & { id: string };
+}
+
+/**
+ * Update specific fields of a document (merge)
+ */
+export async function updateDocument(
+  collection: string,
+  docId: string,
+  data: Partial<DocumentData>
+): Promise<void> {
+  const db = getFirestore();
+  await db.collection(collection).doc(docId).update(data);
+}
+
+/**
+ * Delete a document by ID
+ */
+export async function deleteDocument(
+  collection: string,
+  docId: string
+): Promise<void> {
+  const db = getFirestore();
+  await db.collection(collection).doc(docId).delete();
+}
+
+/**
+ * Query documents with filters
+ */
+export async function queryDocuments<T = DocumentData>(
+  collection: string,
+  filters: Array<{ field: string; operator: WhereFilterOp; value: unknown }>,
+  orderBy?: { field: string; direction: OrderByDirection },
+  limit?: number
+): Promise<(T & { id: string })[]> {
+  const db = getFirestore();
+  let query: Query = db.collection(collection);
+
+  for (const filter of filters) {
+    query = query.where(filter.field, filter.operator, filter.value);
+  }
+
+  if (orderBy) {
+    query = query.orderBy(orderBy.field, orderBy.direction);
+  }
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+
+  const snapshot = await query.get();
+  return snapshot.docs.map(
+    (doc) => ({ id: doc.id, ...doc.data() } as T & { id: string })
+  );
+}
+
+/**
+ * Get all documents in a collection
+ */
+export async function getAllDocuments<T = DocumentData>(
+  collection: string
+): Promise<(T & { id: string })[]> {
+  const db = getFirestore();
+  const snapshot = await db.collection(collection).get();
+  return snapshot.docs.map(
+    (doc) => ({ id: doc.id, ...doc.data() } as T & { id: string })
+  );
+}
+
+/**
+ * Batch write multiple documents
+ */
+export async function batchWrite(
+  operations: Array<{
+    type: 'set' | 'update' | 'delete';
+    collection: string;
+    docId: string;
+    data?: DocumentData;
+  }>
+): Promise<void> {
+  const db = getFirestore();
+  const batch = db.batch();
+
+  for (const op of operations) {
+    const ref = db.collection(op.collection).doc(op.docId);
+    switch (op.type) {
+      case 'set':
+        batch.set(ref, op.data || {});
+        break;
+      case 'update':
+        batch.update(ref, op.data || {});
+        break;
+      case 'delete':
+        batch.delete(ref);
+        break;
+    }
+  }
+
+  await batch.commit();
+}
+
+// ==========================================
+// Realtime Database Operations
+// ==========================================
+
+/**
+ * Set data at a path in Realtime Database
+ */
+export async function rtdbSet(
+  path: string,
+  data: unknown
+): Promise<void> {
+  const db = getRealtimeDb();
+  await db.ref(path).set(data);
+}
+
+/**
+ * Read data from a path in Realtime Database
+ */
+export async function rtdbGet<T = unknown>(path: string): Promise<T | null> {
+  const db = getRealtimeDb();
+  const snapshot = await db.ref(path).once('value');
+  return snapshot.val() as T | null;
+}
+
+/**
+ * Update specific fields at a path in Realtime Database
+ */
+export async function rtdbUpdate(
+  path: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const db = getRealtimeDb();
+  await db.ref(path).update(data);
+}
+
+/**
+ * Delete data at a path in Realtime Database
+ */
+export async function rtdbDelete(path: string): Promise<void> {
+  const db = getRealtimeDb();
+  await db.ref(path).remove();
+}
+
+/**
+ * Push new data under a path (auto-generated key)
+ */
+export async function rtdbPush(
+  path: string,
+  data: unknown
+): Promise<string> {
+  const db = getRealtimeDb();
+  const ref = await db.ref(path).push(data);
+  return ref.key!;
 }
 ```
 
-## Real-Time Listeners (for live dashboards)
+---
 
-```javascript
-// Server-side real-time listener (in Node.js backend)
-db.collection('attendance')
-  .where('tanggal', '==', '2026-05-28')
-  .onSnapshot(snapshot => {
-    const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    // Push to WebSocket clients, emit via Socket.io, etc.
-    broadcastToClients(records);
-  }, error => {
-    console.error('Listener error:', error);
-  });
+## Migrating from Prisma to Firebase
+
+When the user asks to migrate existing Prisma models to Firebase, follow this pattern:
+
+### 1. Read the Prisma Schema
+
+Read `prisma/schema.prisma` to identify all models and their relations.
+
+### 2. Design Firestore Collections
+
+Prisma models map to Firestore collections. Key differences:
+- Firestore is NoSQL — no JOINs; use denormalization or sub-collections
+- Relations in Prisma become either:
+  - **Sub-collections** (for one-to-many): `users/{userId}/posts`
+  - **Reference fields** (for many-to-one): store the parent doc ID as a field
+  - **Denormalized data** (for frequently accessed related data)
+
+### 3. Create Migration Script
+
+Generate a migration script at `scripts/migrate-to-firebase.ts`:
+
+```typescript
+import { getFirestore } from '../src/lib/firebase';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+const db = getFirestore();
+
+async function migrate() {
+  // Example: migrate a "User" model
+  const users = await prisma.user.findMany();
+  for (const user of users) {
+    await db.collection('users').doc(user.id).set({
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+  }
+  console.log(`Migrated ${users.length} users`);
+}
+
+migrate()
+  .then(() => console.log('Migration complete'))
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
 ```
 
-## Environment & Security Notes
+### 4. Update API Routes
 
-- The Admin SDK bypasses Firestore Security Rules — it has full read/write access to all data
-- Never expose the credential JSON file to client-side code
-- For client-side access (browser), use Firebase Client SDK with proper security rules instead
-- The credential file path is fixed: `/home/z/my-project/upload/gen-lang-client-0173847591-firebase-adminsdk-fbsvc-0c9f6c5c70.json`
-- Firestore is in the `gen-lang-client-0173847591` GCP project — all data lives there
+Replace Prisma imports with Firebase imports in all API route files:
 
-## Bundled Scripts
+**Before (Prisma):**
+```typescript
+import { db } from '@/lib/db';
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `scripts/init-firebase.js` | Verify Firebase connection & list collections | `node scripts/init-firebase.js` |
-| `scripts/migrate-json.js` | Migrate JSON data file to Firestore collection | `node scripts/migrate-json.js --file data.json --collection name` |
-| `scripts/backup-collection.js` | Export a Firestore collection to JSON | `node scripts/backup-collection.js --collection name --output backup.json` |
-| `scripts/seed-data.js` | Seed sample data for testing | `node scripts/seed-data.js --collection name --count 10` |
+// Read
+const users = await db.user.findMany();
 
-## Reference Files
+// Create
+const user = await db.user.create({ data: { name: 'Alice' } });
 
-| File | When to Read |
-|------|-------------|
-| `references/firestore-crud.md` | When you need full CRUD patterns with error handling, batch writes, and transactions |
-| `references/firestore-queries.md` | When you need advanced queries, pagination, aggregation, or compound filters |
-| `references/migration-guide.md` | When migrating existing projects from JSON/SQLite/other DBs to Firestore |
-| `references/firebase-client.md` | When adding Firebase Client SDK for browser-side real-time features |
-| `references/schema-design.md` | When designing collection structure, choosing between root/sub-collections, or modeling relationships |
+// Update
+await db.user.update({ where: { id: '1' }, data: { name: 'Bob' } });
 
-## Workflow for New Projects
+// Delete
+await db.user.delete({ where: { id: '1' } });
+```
 
-When a new project needs a database:
+**After (Firebase):**
+```typescript
+import { getAllDocuments, createDocument, updateDocument, deleteDocument } from '@/lib/firebase-helpers';
 
-1. **Initialize** — Run `node scripts/init-firebase.js` to verify the connection
-2. **Design schema** — Read `references/schema-design.md` and plan collections
-3. **Create API routes** — Use the Express.js integration pattern above
-4. **Test** — Use `scripts/seed-data.js` for test data, verify with `scripts/backup-collection.js`
-5. **Deploy** — Your backend already runs in this workspace with Firebase as the persistence layer
+// Read
+const users = await getAllDocuments('users');
 
-## Common Pitfalls
+// Create
+const userId = await createDocument('users', { name: 'Alice' });
 
-- **Missing serverTimestamp()** — Always use `admin.firestore.FieldValue.serverTimestamp()` for time fields, not `new Date()`. Server timestamps are resolved server-side and guaranteed consistent.
-- **Double initialization** — Always check `admin.apps.length === 0` before calling `initializeApp()`. The SDK throws if initialized twice.
-- **Missing indexes** — Compound queries (multiple `where` clauses + `orderBy`) require composite indexes. Firestore will log an error with a direct link to create the index — follow that link.
-- **Document size limit** — Each document max 1 MB. Use sub-collections for large arrays instead of embedding.
-- **Not handling non-existent docs** — Always check `doc.exists` before calling `doc.data()`.
+// Update
+await updateDocument('users', '1', { name: 'Bob' });
+
+// Delete
+await deleteDocument('users', '1');
+```
+
+### 5. Update the fullstack-dev Skill Reference
+
+When using the fullstack-dev skill alongside this one, note that:
+- The `import { db } from '@/lib/db'` pattern is replaced with Firebase imports
+- The Prisma schema steps (`prisma/schema.prisma`, `bun run db:push`) are no longer needed
+- Firestore collections are schemaless; define TypeScript interfaces instead of Prisma models
+
+---
+
+## TypeScript Type Definitions
+
+Since Firestore is schemaless, define TypeScript interfaces for type safety. Place them in `src/types/firebase.ts`:
+
+```typescript
+// Example type definitions for Firestore collections
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  createdAt: admin.firestore.Timestamp;
+  updatedAt: admin.firestore.Timestamp;
+}
+
+export interface Post {
+  id: string;
+  title: string;
+  content: string;
+  authorId: string; // Reference to User
+  tags: string[];
+  createdAt: admin.firestore.Timestamp;
+  updatedAt: admin.firestore.Timestamp;
+}
+```
+
+---
+
+## API Route Patterns
+
+### Using Firebase in Next.js API Routes
+
+All Firebase Admin SDK operations are server-side only. Use them in API routes (`src/app/api/`) or Server Actions.
+
+**Example API Route — `src/app/api/users/route.ts`:**
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { getAllDocuments, createDocument } from '@/lib/firebase-helpers';
+
+export async function GET() {
+  try {
+    const users = await getAllDocuments('users');
+    return NextResponse.json(users);
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const userId = await createDocument('users', {
+      ...body,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return NextResponse.json({ id: userId }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
+  }
+}
+```
+
+**Example API Route — `src/app/api/users/[id]/route.ts`:**
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { getDocument, updateDocument, deleteDocument } from '@/lib/firebase-helpers';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await getDocument('users', params.id);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    return NextResponse.json(user);
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 });
+  }
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await request.json();
+    await updateDocument('users', params.id, {
+      ...body,
+      updatedAt: new Date(),
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await deleteDocument('users', params.id);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 });
+  }
+}
+```
+
+---
+
+## Firestore Indexes
+
+For complex queries with multiple filters and ordering, Firestore requires composite indexes. If a query fails with an index error, create the index:
+
+1. The error message will include a direct link to create the index in the Firebase Console
+2. Or define indexes in `firestore.indexes.json`:
+
+```json
+{
+  "indexes": [
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "authorId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
+```
+
+---
+
+## Common Patterns Reference
+
+Read `references/firestore-patterns.md` for advanced patterns including:
+- Sub-collections for nested data
+- Transactions for atomic operations
+- Paginated queries with cursors
+- Aggregation queries
+- Real-time listeners (client-side with Firebase Client SDK)
+- Data denormalization strategies
+
+Read `references/rtdb-patterns.md` for Realtime Database patterns including:
+- Real-time data sync
+- Presence detection
+- Atomic multi-path updates
+- Security rules design
+
+---
+
+## Troubleshooting
+
+### "FIREBASE_SERVICE_ACCOUNT_PATH is not set"
+Make sure `.env` contains the `FIREBASE_SERVICE_ACCOUNT_PATH` variable and the file exists at that path.
+
+### "The default Firebase app already exists"
+The singleton pattern in `src/lib/firebase.ts` prevents this. If it still occurs, ensure the module is not being imported from multiple conflicting paths.
+
+### Firestore query requires an index
+Follow the link in the error message to create the composite index, or add it to `firestore.indexes.json`.
+
+### Permission denied on Firestore
+Ensure the service account has the correct IAM permissions (Cloud Datastore User or Firebase Admin) in the Firebase Console.
+
+### Realtime Database URL not set
+Add `FIREBASE_DATABASE_URL` to `.env`. The URL format is `https://{project-id}-default-rtdb.firebaseio.com`.
